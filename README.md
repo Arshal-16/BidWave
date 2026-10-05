@@ -85,10 +85,12 @@ Bidders join live rooms, watch real-time bid streams and presence counts, and co
 │   │   ├── pages/               # AuctionListPage, AuctionRoomPage, SellerDashboard
 │   │   └── realtime/            # SocketProvider & useAuctionRoom hook
 │   └── vite.config.ts           # Vite bundler configuration
+├── docs/                        # Specifications & Engineering Blueprints
+│   ├── master.md                # Master Specification (Single Source of Truth)
+│   ├── backend.md               # Backend implementation blueprint
+│   └── frontend.md              # Frontend implementation blueprint
 ├── docker-compose.yml           # 2 Backend Replicas + Worker + Postgres + Redis + Nginx
 ├── nginx.conf                   # Reverse proxy configuration with WebSocket upgrade headers
-├── master.md                    # Master Specification (Single Source of Truth)
-└── backend.md / frontend.md     # Implementation blueprints
 ```
 
 ---
