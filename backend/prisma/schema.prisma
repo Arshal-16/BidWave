@@ -1,0 +1,96 @@
+// Prisma schema for BidWave
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  BIDDER
+  SELLER
+  ADMIN
+}
+
+enum AuctionStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  CANCELLED
+  SOLD
+  UNSOLD
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(BIDDER)
+  emailVerified Boolean        @default(false)
+  isBanned      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  auctions      Auction[]      @relation("SellerAuctions")
+  bids          Bid[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Auction {
+  id                        String        @id @default(uuid())
+  sellerId                  String
+  seller                    User          @relation("SellerAuctions", fields: [sellerId], references: [id], onDelete: Cascade)
+  title                     String
+  description               String
+  images                    String[]
+  startingPrice             Decimal       @db.Decimal(10, 2)
+  reservePrice              Decimal?      @db.Decimal(10, 2)
+  minIncrement              Decimal       @default(1.00) @db.Decimal(10, 2)
+  currentHighestBidId       String?       @unique
+  currentHighestBid         Bid?          @relation("HighestBid", fields: [currentHighestBidId], references: [id], onDelete: SetNull)
+  status                    AuctionStatus @default(DRAFT)
+  antiSnipeWindowSeconds    Int           @default(30)
+  antiSnipeExtensionSeconds Int           @default(60)
+  startsAt                  DateTime
+  endsAt                    DateTime
+  version                   Int           @default(0) // Optimistic-lock counter
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+
+  bids                      Bid[]         @relation("AuctionBids")
+
+  @@index([status, endsAt])
+  @@map("auctions")
+}
+
+model Bid {
+  id         String   @id @default(uuid())
+  auctionId  String
+  auction    Auction  @relation("AuctionBids", fields: [auctionId], references: [id], onDelete: Cascade)
+  bidderId   String
+  bidder     User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  amount     Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+
+  highestFor Auction? @relation("HighestBid")
+
+  @@index([auctionId, amount])
+  @@map("bids")
+}

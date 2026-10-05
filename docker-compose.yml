@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bidwave
+      POSTGRES_PASSWORD: bidwave
+      POSTGRES_DB: bidwave
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bidwave"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://bidwave:bidwave@postgres:5432/bidwave
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: dev-access-secret-32-chars-minimum-length-key
+      JWT_REFRESH_SECRET: dev-refresh-secret-32-chars-minimum-length-key
+      CORS_ORIGIN: "http://localhost:5173,http://localhost:3000,http://localhost:4000"
+    ports: ["4001:4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/server.js"
+
+  backend-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://bidwave:bidwave@postgres:5432/bidwave
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: dev-access-secret-32-chars-minimum-length-key
+      JWT_REFRESH_SECRET: dev-refresh-secret-32-chars-minimum-length-key
+      CORS_ORIGIN: "http://localhost:5173,http://localhost:3000,http://localhost:4000"
+    ports: ["4002:4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-1:
+        condition: service_started
+    command: node dist/server.js
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://bidwave:bidwave@postgres:5432/bidwave
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: dev-access-secret-32-chars-minimum-length-key
+      JWT_REFRESH_SECRET: dev-refresh-secret-32-chars-minimum-length-key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: node dist/jobs/worker.js
+
+  nginx:
+    image: nginx:alpine
+    ports: ["4000:80"]
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    depends_on:
+      - backend-1
+      - backend-2
+
+volumes:
+  pgdata:
