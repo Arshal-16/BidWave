@@ -4,7 +4,31 @@ import { AppError } from '../utils/AppError';
 import { AuctionStatus, Prisma } from '@prisma/client';
 import { scheduleCloseJob } from '../jobs/queue';
 
+/**
+ * ============================================================================
+ * AUCTION DOMAIN SERVICE: AuctionService
+ * ============================================================================
+ *
+ * Implements business rules and state lifecycle transitions for auctions.
+ *
+ * Business Rules & Invariants:
+ * - BR1: Status begins at `OPEN` upon creation.
+ * - BR2: A Seller can cancel an auction only before any bids exist (FR2).
+ * - BR5: An auction's financial parameters (`startingPrice`, `minIncrement`, `endsAt`)
+ *   can only be edited when zero bids exist. Once bidding commences, only metadata
+ *   (`title`, `description`, `images`) may be updated.
+ * - BullMQ Integration: Automatically schedules delayed close job on creation/reschedule.
+ */
 export class AuctionService {
+  /**
+   * Create and publish a new auction listing.
+   * Automatically schedules a BullMQ delayed job to trigger at `endsAt`.
+   *
+   * @param sellerId - User ID of the listing creator
+   * @param input    - Auction configuration parameters
+   * @returns Newly created Auction database record
+   * @throws  400 Bad Request if `endsAt <= startsAt`
+   */
   async createAuction(sellerId: string, input: {
     title: string;
     description: string;
@@ -45,6 +69,12 @@ export class AuctionService {
     return auction;
   }
 
+  /**
+   * Query auctions with optional status, seller, search keyword, and pagination.
+   *
+   * @param params - Filtering and pagination parameters
+   * @returns Paginated list of formatted auctions with numeric prices and total counts
+   */
   async listAuctions(params: {
     status?: AuctionStatus;
     sellerId?: string;
@@ -82,6 +112,13 @@ export class AuctionService {
     };
   }
 
+  /**
+   * Fetch complete record for a single auction by UUID.
+   *
+   * @param id - Auction UUID
+   * @returns Auction object with numeric price conversions
+   * @throws  404 Not Found if auction does not exist
+   */
   async getAuctionById(id: string) {
     const auction = await auctionRepository.findById(id);
     if (!auction) {
@@ -98,6 +135,13 @@ export class AuctionService {
     };
   }
 
+  /**
+   * Generates a lightweight authoritative state snapshot for WebSocket `auction:state` responses.
+   *
+   * @param auctionId - Target auction UUID
+   * @returns AuctionRoomState snapshot
+   * @throws  404 Not Found if auction does not exist
+   */
   async getAuctionSnapshot(auctionId: string) {
     const auction = await auctionRepository.findById(auctionId);
     if (!auction) {
@@ -118,6 +162,17 @@ export class AuctionService {
     };
   }
 
+  /**
+   * Update auction properties before bidding starts or update non-financial fields if bids exist (BR5).
+   *
+   * @param auctionId - Target auction UUID
+   * @param sellerId  - Requesting user ID for ownership validation
+   * @param updates   - Fields to update
+   * @returns Updated auction record
+   * @throws  403 Forbidden if user is not owner
+   * @throws  404 Not Found if auction does not exist
+   * @throws  409 Conflict if attempting to modify pricing or deadlines on active bidding
+   */
   async updateAuction(
     auctionId: string,
     sellerId: string,
@@ -170,6 +225,16 @@ export class AuctionService {
     return updated;
   }
 
+  /**
+   * Cancel an open auction listing before any bids exist (FR2).
+   *
+   * @param auctionId - Target auction UUID
+   * @param sellerId  - Requesting user ID for ownership validation
+   * @returns Updated auction record with status CANCELLED
+   * @throws  403 Forbidden if not owner
+   * @throws  404 Not Found if auction does not exist
+   * @throws  409 Conflict if auction already has bids placed
+   */
   async cancelAuction(auctionId: string, sellerId: string) {
     const auction = await auctionRepository.findById(auctionId);
     if (!auction) {
@@ -192,3 +257,4 @@ export class AuctionService {
 }
 
 export const auctionService = new AuctionService();
+

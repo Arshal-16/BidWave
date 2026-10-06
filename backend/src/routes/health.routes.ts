@@ -2,8 +2,20 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../config/prisma';
 import { redisClient } from '../config/redis';
 
+/**
+ * Health Check Route Module (/api/v1/health)
+ *
+ * Provides system liveness and readiness monitoring endpoints for load balancers (e.g. Nginx, Docker healthchecks).
+ */
 const router = Router();
 
+/**
+ * @route   GET /api/v1/health
+ * @desc    Check liveness and connectivity of PostgreSQL database and Redis cluster
+ * @access  Public
+ * @res     200 { status: 'healthy', timestamp, uptime, services: { database: 'ok', redis: 'ok' } }
+ * @res     503 { status: 'degraded', timestamp, uptime, services: { ... } } if any dependency is unreachable
+ */
 router.get('/', async (_req: Request, res: Response) => {
   let dbStatus = 'ok';
   let redisStatus = 'ok';
@@ -35,3 +47,4 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 export const healthRoutes = router;
+

@@ -6,6 +6,42 @@ import { AppError } from '../utils/AppError';
 import { logger } from '../config/logger';
 import { emailQueue } from '../jobs/queue';
 
+/**
+ * ============================================================================
+ * REAL-TIME AUCTION ROOM HANDLER: registerAuctionRoomHandlers()
+ * ============================================================================
+ *
+ * Architecture & Event Dispatching Model:
+ * ----------------------------------------------------------------------------
+ * Powered by Socket.io and scaled horizontally across backend nodes via the
+ * `@socket.io/redis-adapter`.
+ *
+ * Channels & Rooms:
+ * 1. `auction:{auctionId}`: Public room for all viewers of a specific auction.
+ *    Broadcasts state updates, accepted bids, clock extensions, and viewer counts.
+ * 2. `user:{userId}`: Private scoped room for targeted notifications (e.g. `bid:outbid`).
+ *
+ * Event Lifecycles:
+ * - `auction:join`:
+ *     1. Joins socket to `auction:{auctionId}` room.
+ *     2. Atomically increments Redis presence counter.
+ *     3. Emits `auction:state` snapshot ONLY to the joining socket (FR3, FR9, NFR4).
+ *     4. Broadcasts `presence:update` with new viewer count to all room participants.
+ *
+ * - `auction:leave`:
+ *     1. Leaves `auction:{auctionId}` room.
+ *     2. Decrements Redis presence counter and broadcasts updated count.
+ *
+ * - `bid:place`:
+ *     1. Calls `placeBid()` with OCC atomic version check.
+ *     2. If accepted -> broadcasts `bid:accepted` to `auction:{auctionId}` room (FR5, NFR2).
+ *     3. If anti-snipe triggered -> broadcasts `auction:extended` to room (FR6, BR4).
+ *     4. If previous highest bidder exists -> emits targeted `bid:outbid` to `user:{prevId}` (FR8).
+ *     5. If rejected/conflict -> emits `bid:rejected` ONLY to the placing socket (NFR1).
+ *
+ * - `disconnect`:
+ *     Cleans up presence counters across all joined auction rooms.
+ */
 export function registerAuctionRoomHandlers(nsp: Namespace, socket: Socket) {
   const userId = socket.data.userId;
   const joinedRooms = new Set<string>();
@@ -111,3 +147,4 @@ function roomName(auctionId: string): string {
 function maskId(id: string): string {
   return id ? id.slice(0, 8) : 'bidder';
 }
+

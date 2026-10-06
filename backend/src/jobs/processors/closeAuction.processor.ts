@@ -6,6 +6,37 @@ import { getIoInstance } from '../../realtime/io';
 import { logger } from '../../config/logger';
 import { AuctionStatus } from '@prisma/client';
 
+/**
+ * ============================================================================
+ * AUCTION CLOSE WORKER: createCloseAuctionWorker()
+ * ============================================================================
+ *
+ * Algorithmic Execution Steps:
+ * ----------------------------------------------------------------------------
+ * When the delayed job fires upon auction expiration:
+ *
+ * 1. DATABASE LOOKUP & IDEMPOTENCY GUARD:
+ *    - Fetch the auction from PostgreSQL.
+ *    - Check if `auction.status !== OPEN` or `auction.endsAt > Date.now()`.
+ *      If a late anti-snipe bid extended the deadline while this job was being
+ *      dequeued, this job exits cleanly — the rescheduled job will handle closing.
+ *
+ * 2. WINNER & RESERVE EVALUATION:
+ *    - Fetch `currentHighestBidId`.
+ *    - If no bids exist -> Outcome is `UNSOLD`.
+ *    - If highest bid >= `reservePrice` (or no reserve was configured) -> Outcome is `SOLD`.
+ *    - If highest bid < `reservePrice` -> Outcome is `UNSOLD` (reserve not met).
+ *
+ * 3. STATE TRANSITION:
+ *    - Update auction status in DB to `SOLD` or `UNSOLD`.
+ *
+ * 4. REAL-TIME BROADCAST:
+ *    - Emit `auction:closed` event to `auction:{auctionId}` room across all
+ *      cluster nodes via the Redis pub/sub adapter.
+ *
+ * 5. TRANSACTIONAL EMAIL QUEUING:
+ *    - If `SOLD`: queue `auction-won` email to highest bidder and `auction-sold` to seller.
+ */
 export function createCloseAuctionWorker(): Worker {
   return new Worker(
     'auction-close',
@@ -37,6 +68,7 @@ export function createCloseAuctionWorker(): Worker {
           })
         : null;
 
+      // Reserve price validation (BR8)
       const reserveMet =
         !auction.reservePrice ||
         (highestBid && Number(highestBid.amount) >= Number(auction.reservePrice));
@@ -55,7 +87,7 @@ export function createCloseAuctionWorker(): Worker {
 
       logger.info({ auctionId, outcome, highestBid: highestBid?.amount }, 'Auction closed successfully');
 
-      // Broadcast auction:closed event to all room participants
+      // Broadcast auction:closed event to all room participants across cluster
       try {
         getIoInstance()
           .of('/auctions')
@@ -90,3 +122,4 @@ export function createCloseAuctionWorker(): Worker {
     { connection: redisClient },
   );
 }
+

@@ -2,6 +2,19 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '../hooks/useAuth';
 
+/**
+ * ============================================================================
+ * SOCKET PROVIDER & WEBSOCKET LIFECYCLE CONTEXT
+ * ============================================================================
+ *
+ * Responsibilities:
+ * - Manages the singleton Socket.io client instance connected to `/auctions` namespace.
+ * - Injects the active JWT `accessToken` in `auth: { token }` during handshake.
+ * - Disconnects socket cleanly upon user logout.
+ * - Handles automated background reconnections (`reconnectionAttempts: Infinity`)
+ *   when network conditions blip.
+ */
+
 interface SocketContextType {
   socket: Socket | null;
   connected: boolean;
@@ -18,6 +31,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    // If unauthenticated or logged out, tear down any active socket connection
     if (!accessToken) {
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -66,3 +80,4 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 export const useSocket = () => useContext(SocketContext);
+

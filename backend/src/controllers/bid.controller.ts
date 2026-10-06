@@ -3,7 +3,23 @@ import { bidRepository } from '../repositories/bid.repository';
 import { placeBid } from '../services/bid.service';
 import { catchAsync } from '../utils/catchAsync';
 
+/**
+ * BidController handles REST endpoints for auction bids.
+ *
+ * Provides:
+ * - Paginated bid history with masked bidder identifiers.
+ * - HTTP fallback for placing bids (delegates directly to `placeBid` concurrency engine).
+ */
 export class BidController {
+  /**
+   * Fetch historical bids for an auction with pagination.
+   *
+   * @route   GET /api/v1/auctions/:auctionId/bids
+   * @access  Public
+   * @param   auctionId - Auction UUID
+   * @query   page (default 1), limit (default 50)
+   * @returns 200 OK with list of formatted bids and pagination metadata.
+   */
   getHistory = catchAsync(async (req: Request, res: Response) => {
     const { auctionId } = req.params;
     const page = req.query.page ? Number(req.query.page) : 1;
@@ -35,7 +51,18 @@ export class BidController {
     });
   });
 
-  // REST fallback for placing a bid
+  /**
+   * REST fallback endpoint for placing a bid.
+   *
+   * Uses the same optimistic-concurrency `placeBid` engine as the WebSocket handler.
+   *
+   * @route   POST /api/v1/auctions/:auctionId/bids
+   * @access  Private (Authenticated User)
+   * @param   auctionId - Auction UUID
+   * @body    { amount: number }
+   * @returns 201 Created with accepted bid metadata.
+   * @throws  409 Conflict if bid is out of date, below increment, or fails race retry.
+   */
   placeRestBid = catchAsync(async (req: Request, res: Response) => {
     const { auctionId } = req.params;
     const bidderId = req.user!.id;
@@ -51,3 +78,4 @@ export class BidController {
 }
 
 export const bidController = new BidController();
+
